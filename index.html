@@ -1,0 +1,440 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PNG Border Trimmer</title>
+    <script src="./jszip.min.js"></script>
+    <style>
+        body {
+            font-family: sans-serif;
+            margin: 20px;
+            text-align: center;
+            background-color: #f4f4f9;
+        }
+        .container {
+            max-width: 800px;
+            margin: auto;
+            padding: 20px;
+            background: #fff;
+            border-radius: 8px;
+            box-shadow: 0 4px 8px rgba(0,0,0,0.1);
+        }
+        
+        #dropZone {
+            border: 3px dashed #ccc;
+            border-radius: 8px;
+            padding: 30px 20px;
+            margin-bottom: 20px;
+            cursor: pointer;
+            transition: background-color 0.2s, border-color 0.2s;
+            position: relative;
+            overflow: hidden;
+            background-color: #fafafa;
+        }
+        #dropZone:hover {
+            border-color: #ffc107;
+            background-color: #fffbe6;
+        }
+        #dropZone.drag-over {
+            border-color: #ffae00;
+            background-color: #ffe082;
+        }
+        #dropZone p {
+            margin: 0;
+            pointer-events: none; 
+            font-size: 1.1em;
+            color: #555;
+        }
+
+        #fileInput {
+            opacity: 0; 
+            position: absolute; 
+            width: 100%; 
+            height: 100%; 
+            top: 0; 
+            left: 0; 
+            cursor: pointer;
+            display: block; 
+        }
+        
+        button {
+            padding: 10px 20px;
+            margin: 5px;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            font-weight: bold;
+            transition: background-color 0.3s, color 0.3s;
+        }
+        #trimButton {
+            background-color: #ffc107; 
+            color: #333; 
+        }
+        #trimButton:hover {
+            background-color: #ffae00; 
+        }
+        #downloadAllButton {
+            background-color: #ffc107; 
+            color: #333; 
+            display: none; 
+        }
+        #downloadAllButton:hover {
+            background-color: #ffae00; 
+        }
+
+        .image-preview-container {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 15px;
+            margin-top: 20px;
+            justify-content: center;
+            border-top: 1px solid #eee;
+            padding-top: 20px;
+        }
+        .image-card {
+            border: 1px solid #ccc;
+            padding: 10px;
+            border-radius: 5px;
+            text-align: center;
+            width: 150px;
+            height: auto;
+        }
+
+        .image-card.trimmed {
+            background-color: #e6ffe6;
+            border-color: #a3e6a3;
+        }
+        
+        .image-wrapper {
+            width: 100%;
+            max-height: 150px;
+            margin-bottom: 10px;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            overflow: hidden;
+            border-radius: 3px;
+        }
+
+        .checkerboard {
+            background-color: #eee;
+            background-image: 
+                linear-gradient(45deg, #ccc 25%, transparent 25%), 
+                linear-gradient(-45deg, #ccc 25%, transparent 25%),
+                linear-gradient(45deg, transparent 75%, #ccc 75%),
+                linear-gradient(-45deg, transparent 75%, #ccc 75%);
+            background-size: 16px 16px; 
+            background-position: 0 0, 0 8px, 8px -8px, -8px 0px; 
+            width: 100%;
+            height: 100%; 
+        }
+        
+        .image-card img {
+            max-width: 100%;
+            max-height: 100%;
+            object-fit: contain; 
+            display: block;
+            margin: auto; 
+            border: none; 
+        }
+        .status-message {
+            margin-top: 20px;
+            font-size: 1.1em;
+            color: #333;
+        }
+    </style>
+</head>
+<body>
+
+    <div class="container">
+        <h1>✂️ PNG Border Trimmer</h1>
+        <p>Upload up to 100 PNG files.</p>
+        
+        <div id="dropZone">
+            <p>Drag & Drop PNG files here, or click to select.</p>
+            <input type="file" id="fileInput" accept=".png" multiple onchange="handleFiles()">
+        </div>
+        
+        <button id="trimButton" onclick="trimAllImages()" disabled style="display:none;">Remove Empty Border</button>
+        
+        <button id="downloadAllButton" onclick="downloadAll()">Download All Trimmed</button>
+
+        <p id="status" class="status-message"></p>
+
+        <div class="image-preview-container" id="previewContainer">
+        </div>
+    </div>
+
+    <script>
+    // ...existing code...
+        const MAX_FILES = 100;
+        const fileInput = document.getElementById('fileInput');
+        const dropZone = document.getElementById('dropZone');
+        const trimButton = document.getElementById('trimButton');
+        const downloadAllButton = document.getElementById('downloadAllButton');
+        const previewContainer = document.getElementById('previewContainer');
+        const statusElement = document.getElementById('status');
+        
+        let originalFiles = []; 
+        let trimmedBlobs = [];  
+
+        function truncateFilename(filename, maxLength = 10) {
+            if (filename.length > maxLength) {
+                const lastDotIndex = filename.lastIndexOf('.');
+                
+                if (lastDotIndex > 0) {
+                    const namePart = filename.substring(0, lastDotIndex);
+                    const extPart = filename.substring(lastDotIndex);
+                    
+                    if (namePart.length > maxLength) {
+                        return namePart.substring(0, maxLength) + '...' + extPart;
+                    }
+                }
+                
+                return filename.substring(0, maxLength) + '...';
+            }
+            return filename;
+        }
+        
+
+        function formatBytes(bytes, decimals = 2) {
+            if (bytes === 0) return '0 Bytes';
+            const k = 1024;
+            const dm = decimals < 0 ? 0 : decimals;
+            const sizes = ['Bytes', 'KB', 'MB', 'GB', 'TB'];
+            const i = Math.floor(Math.log(bytes) / Math.log(k));
+            return parseFloat((bytes / Math.pow(k, i)).toFixed(dm)) + ' ' + sizes[i];
+        }
+
+
+        dropZone.addEventListener('dragover', (e) => {
+            e.preventDefault();
+            dropZone.classList.add('drag-over');
+        });
+        dropZone.addEventListener('dragleave', (e) => {
+            e.preventDefault();
+            dropZone.classList.remove('drag-over');
+        });
+        dropZone.addEventListener('drop', (e) => {
+            e.preventDefault();
+            dropZone.classList.remove('drag-over');
+            fileInput.files = e.dataTransfer.files;
+            handleFiles();
+        });
+
+        function handleFiles() {
+            const files = fileInput.files;
+            statusElement.textContent = '';
+            downloadAllButton.style.display = 'none';
+            trimButton.disabled = true;
+            trimButton.style.display = 'none';
+
+            if (files.length === 0) {
+                statusElement.textContent = 'Please select one or more PNG files.';
+                return;
+            }
+
+            if ((originalFiles.length + files.length) > MAX_FILES) {
+                statusElement.textContent = `Error: You can only upload a maximum of ${MAX_FILES} files.`;
+                fileInput.value = '';
+                return;
+            }
+
+            let fileCount = 0;
+            for (let i = 0; i < files.length; i++) {
+                if (files[i].type === 'image/png') {
+                    originalFiles.push(files[i]);
+                    fileCount++;
+                    displayPreview(files[i]);
+                }
+            }
+
+            if (fileCount > 0) {
+                statusElement.textContent = `Loaded ${fileCount} new PNG file(s). Ready to trim.`;
+                trimButton.disabled = false;
+                trimButton.style.display = 'inline-block';
+            } else {
+                statusElement.textContent = 'No valid PNG files selected.';
+            }
+        }
+
+        function displayPreview(file) {
+            const reader = new FileReader();
+            reader.onload = function(e) {
+                const card = document.createElement('div');
+                card.className = 'image-card';
+                card.id = `card-${file.name.replace(/[^a-zA-Z0-9]/g, '-')}`;
+                
+                const wrapper = document.createElement('div');
+                wrapper.className = 'image-wrapper checkerboard';
+
+                const img = document.createElement('img');
+                img.src = e.target.result;
+                img.alt = file.name;
+                img.id = `img-${file.name.replace(/[^a-zA-Z0-9]/g, '-')}`;
+                
+                const nameP = document.createElement('p');
+                nameP.textContent = truncateFilename(file.name); 
+                nameP.title = file.name;
+
+                wrapper.appendChild(img);
+                card.appendChild(wrapper);
+                card.appendChild(nameP);
+                previewContainer.appendChild(card);
+            };
+            reader.readAsDataURL(file);
+        }
+
+        async function trimAllImages() {
+            if (originalFiles.length === 0) {
+                statusElement.textContent = 'No images to trim.';
+                return;
+            }
+
+            trimButton.disabled = true;
+            trimButton.style.display = 'none';
+            downloadAllButton.style.display = 'none';
+            trimmedBlobs = [];
+            statusElement.textContent = `Trimming ${originalFiles.length} image(s)... This may take a moment.`;
+
+            for (const file of originalFiles) {
+                try {
+                    const trimmedBlob = await trimImage(file);
+                    trimmedBlobs.push({ name: file.name, blob: trimmedBlob });
+
+                    const reader = new FileReader();
+                    reader.onload = function(e) {
+                        const imgId = `img-${file.name.replace(/[^a-zA-Z0-9]/g, '-')}`;
+                        const cardId = `card-${file.name.replace(/[^a-zA-Z0-9]/g, '-')}`;
+                        const img = document.getElementById(imgId);
+                        if (img) img.src = e.target.result;
+                        const card = document.getElementById(cardId);
+                        if (card) card.classList.add('trimmed');
+                    };
+                    reader.readAsDataURL(trimmedBlob);
+
+                } catch (error) {
+                    console.error(`Error trimming ${file.name}:`, error);
+                    statusElement.textContent = `Error trimming ${file.name}. See console for details.`;
+                }
+            }
+
+            if (trimmedBlobs.length > 0) {
+                statusElement.textContent = `Successfully trimmed ${trimmedBlobs.length} image(s). Ready for download.`;
+                downloadAllButton.style.display = 'inline-block';
+            } else {
+                statusElement.textContent = 'Trimming failed for all images.';
+            }
+            trimButton.disabled = false;
+        }
+
+        function trimImage(file) {
+            return new Promise((resolve, reject) => {
+                const reader = new FileReader();
+                reader.onload = function(e) {
+                    const img = new Image();
+                    img.onload = function() {
+                        try {
+                            const canvas = document.createElement('canvas');
+                            const ctx = canvas.getContext('2d');
+                            
+                            const { width, height } = img;
+                            canvas.width = width;
+                            canvas.height = height;
+                            ctx.drawImage(img, 0, 0);
+
+                            const imageData = ctx.getImageData(0, 0, width, height);
+                            const data = imageData.data;
+
+                            let minX = width, minY = height, maxX = 0, maxY = 0;
+                            let foundPixel = false;
+
+                            for (let y = 0; y < height; y++) {
+                                for (let x = 0; x < width; x++) {
+                                    const alphaIndex = (y * width + x) * 4 + 3;
+                                    const alpha = data[alphaIndex];
+                                    
+                                    if (alpha > 0) {
+                                        foundPixel = true;
+                                        minX = Math.min(minX, x);
+                                        minY = Math.min(minY, y);
+                                        maxX = Math.max(maxX, x);
+                                        maxY = Math.max(maxY, y); 
+                                    }
+                                }
+                            }
+
+                            if (!foundPixel) {
+                                canvas.toBlob(resolve, 'image/png');
+                                return;
+                            }
+
+                            const newWidth = maxX - minX + 1;
+                            const newHeight = maxY - minY + 1;
+
+                            const trimmedData = ctx.getImageData(minX, minY, newWidth, newHeight);
+
+                            const trimmedCanvas = document.createElement('canvas');
+                            trimmedCanvas.width = newWidth;
+                            trimmedCanvas.height = newHeight;
+                            const trimmedCtx = trimmedCanvas.getContext('2d');
+                            trimmedCtx.putImageData(trimmedData, 0, 0);
+
+                            trimmedCanvas.toBlob(resolve, 'image/png');
+                            
+                        } catch (e) {
+                            reject(e);
+                        }
+                    };
+                    img.onerror = reject;
+                    img.src = e.target.result;
+                };
+                reader.onerror = reject;
+                reader.readAsDataURL(file);
+            });
+        }
+        function downloadAll() {
+        if (trimmedBlobs.length === 0) {
+            statusElement.textContent = 'No trimmed images to download.';
+            return;
+        }
+
+        statusElement.textContent = `Preparing to download ${trimmedBlobs.length} file(s)...`;
+
+        if (trimmedBlobs.length === 1) {
+            // Single file: download directly
+            const item = trimmedBlobs[0];
+            const a = document.createElement('a');
+            a.href = URL.createObjectURL(item.blob);
+            a.download = `trimmed_${item.name}`;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(a.href);
+            statusElement.textContent = `Successfully triggered download for 1 file. Check your downloads folder.`;
+        } else {
+            // Multiple files: create zip
+            if (typeof JSZip === 'undefined') {
+                statusElement.textContent = 'Error: JSZip library not loaded.';
+                return;
+            }
+            const zip = new JSZip();
+            trimmedBlobs.forEach(item => {
+                zip.file(`trimmed_${item.name}`, item.blob);
+            });
+            zip.generateAsync({ type: 'blob' }).then(function(content) {
+                const a = document.createElement('a');
+                a.href = URL.createObjectURL(content);
+                a.download = 'trimmed_images.zip';
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+                URL.revokeObjectURL(a.href);
+                statusElement.textContent = `Successfully triggered download for ${trimmedBlobs.length} files as zip. Check your downloads folder.`;
+            });
+        }
+        }
+    </script>
+</body>
+</html>
