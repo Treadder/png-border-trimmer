@@ -149,10 +149,10 @@
 
     <div class="container">
         <h1>✂️ PNG Border Trimmer</h1>
-        <p>Upload up to 100 PNG files.</p>
+        <p>Trim extra transparent pixels from your PNG images</p>
         
         <div id="dropZone">
-            <p>Drag & Drop PNG files here, or click to select.</p>
+            <p>Drag & Drop or click to add files</p>
             <input type="file" id="fileInput" accept=".png" multiple onchange="handleFiles()">
         </div>
         
@@ -165,9 +165,11 @@
         <div class="image-preview-container" id="previewContainer">
         </div>
     </div>
+    <footer style="margin-top:40px; text-align:center; color:#888; font-size:1em;">
+        Made by <a href="https://jaredkelnhofer.com" target="_blank" style="color:#007bff; text-decoration:none;">Jared Kelnhofer</a>
+    </footer>
 
     <script>
-    // ...existing code...
         const MAX_FILES = 100;
         const fileInput = document.getElementById('fileInput');
         const dropZone = document.getElementById('dropZone');
@@ -403,7 +405,6 @@
         statusElement.textContent = `Preparing to download ${trimmedBlobs.length} file(s)...`;
 
         if (trimmedBlobs.length === 1) {
-            // Single file: download directly
             const item = trimmedBlobs[0];
             const a = document.createElement('a');
             a.href = URL.createObjectURL(item.blob);
@@ -414,7 +415,6 @@
             URL.revokeObjectURL(a.href);
             statusElement.textContent = `Successfully triggered download for 1 file. Check your downloads folder.`;
         } else {
-            // Multiple files: create zip
             if (typeof JSZip === 'undefined') {
                 statusElement.textContent = 'Error: JSZip library not loaded.';
                 return;
